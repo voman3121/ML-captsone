@@ -1,0 +1,4 @@
+-r ../requirements.txt
+streamlit>=1.32
+openpyxl>=3.1
+plotly>=5.18
