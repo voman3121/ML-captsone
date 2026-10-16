@@ -1,22 +1,24 @@
 ﻿# ML Capstone — Streamlit App
 
-A beginner-friendly Streamlit interface for exploring traditional machine learning algorithms for regression, classification, and clustering. The original Jupyter notebooks and algorithms are retained in this repository.
+A beginner-friendly Streamlit application for exploring traditional machine learning in regression, classification, and clustering. The original Jupyter notebooks are kept in `notebooks/` and are not changed by the app.
 
 ## Current status
 
-The app is **not deployed yet**. You can run it locally by following the steps below. Deployment instructions for Streamlit Community Cloud are included near the end.
+Deployment is in progress. The app is being prepared for Streamlit Community Cloud; add its hosted URL here once deployment completes. You can also run it locally using the commands below.
 
-## What the app includes
+## Application features
 
-- **Regression:** compares ten regressors on the flight-fare training data and can evaluate an uploaded fare dataset when it has the fields needed to construct the model inputs. The five core regression models are Linear Regression, Decision Tree, Random Forest, Gradient Boosting, and K-Nearest Neighbors; the page also includes the other implemented regression algorithms.
-- **Classification:** evaluates ten classifiers on a labeled cardio dataset and reports classification metrics and visualizations. The uploaded CSV needs a target/label column and usable feature columns.
-- **Clustering:** K-Means on the financial-risk data and Agglomerative clustering on Iris-style measurements, with cluster evaluation metrics and plots. An Iris CSV can be supplied for Agglomerative clustering.
+- **Regression:** compare ten flight-fare regressors, explore model errors and fare data, evaluate a labeled upload, predict fares from an uploaded file, or enter one editable flight record for a fare estimate. The bundled AeroFare training file is `data/Data_Train.xlsx`.
+- **Classification:** upload a labeled cardiovascular dataset with a binary `cardio` target, compare ten classifiers, review the evaluation metrics and plots, then enter one editable patient record for a class prediction. The uploaded labeled dataset supplies the model training data.
+- **Clustering:** run K-Means and Agglomerative clustering on the same cleaned and scaled FinRisk borrower features from `clustering_merged.ipynb`. Compare Silhouette, Davies–Bouldin, and Calinski–Harabasz scores on a shared sample. You can also enter one borrower record and see the K-Means assignment alongside Agglomerative's nearest-cluster-profile estimate. `loan_status` is excluded from clustering features.
 
-The precise input columns and supported options are described on each page in the app. Bundled data files used by the app are in `data/`.
+The app uses `data/credit_risk_dataset.csv` for FinRisk when that file is available, or you can upload the CSV in the app. The clustering page samples large inputs for responsiveness; Agglomerative comparison uses up to 2,500 borrowers because its memory cost grows rapidly with sample size.
 
-## Run locally (Windows PowerShell)
+## Run locally
 
-Run these commands from the repository root (the directory containing `README.md`):
+Run from the repository root (the directory containing this README).
+
+### Windows PowerShell
 
 ```powershell
 py -m venv .venv
@@ -26,9 +28,13 @@ python -m pip install -r notebooks/requirements-app.txt
 streamlit run notebooks/app.py
 ```
 
-Streamlit prints a local address, usually `http://localhost:8501`; open it in your browser. If PowerShell blocks virtual-environment activation, use a terminal where activation is permitted or run the environment's Python directly: `.\.venv\Scripts\python.exe -m streamlit run notebooks/app.py`.
+Open the local URL Streamlit prints, usually `http://localhost:8501`. If PowerShell blocks environment activation, run Streamlit directly through the environment's Python:
 
-For macOS/Linux, from the repository root:
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run notebooks/app.py
+```
+
+### macOS/Linux
 
 ```bash
 python3 -m venv .venv
@@ -38,16 +44,15 @@ python -m pip install -r notebooks/requirements-app.txt
 streamlit run notebooks/app.py
 ```
 
-`notebooks/requirements-app.txt` installs the project dependencies plus Streamlit, Plotly, and Excel support. `notebooks/requirements.txt` provides the standard dependency filename used by Streamlit Community Cloud for this app entry point.
+`notebooks/requirements-app.txt` is the local install list. `notebooks/requirements.txt` is the standard dependency file Community Cloud detects next to `notebooks/app.py`; both list the packages required by the app.
 
 ## Deploy with Streamlit Community Cloud
 
-Deployment has not been performed. To publish the app:
+1. Push the latest project to a GitHub repository that your Streamlit Community Cloud account can access.
+2. Make sure the repository includes `notebooks/app.py`, `notebooks/requirements.txt`, and the needed data files in the root `data/` folder, including `Data_Train.xlsx` and `credit_risk_dataset.csv` if the app should load them automatically. Keep the directory structure intact.
+3. Sign in at [Streamlit Community Cloud](https://share.streamlit.io/) and connect your GitHub account.
+4. Select **Create app**, choose the repository and branch, and set the main file path to `notebooks/app.py`.
+5. Deploy. Community Cloud installs the app dependencies and gives you a hosted `*.streamlit.app` URL. Review the deployment logs if a dependency or data path needs attention.
 
-1. Push the project to a GitHub repository that your Streamlit Community Cloud account can access.
-2. Confirm the app's bundled data files (including `data/Data_Train.xlsx` and `data/credit_risk_dataset.csv`, if present in your checkout) are committed and available to the app. Keep private or sensitive data out of a public repository. Classification data can be uploaded by the person using the app.
-3. Sign in to [Streamlit Community Cloud](https://share.streamlit.io/) and connect GitHub.
-4. Create an app and select the repository and branch. Set the app's main file path to `notebooks/app.py`.
-5. Deploy. Community Cloud installs dependencies from `notebooks/requirements.txt` and provides a hosted `*.streamlit.app` address. Check the deployment logs if a dependency or data-file path needs adjustment.
+See Streamlit's guides for [deploying an app](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy), [dependency files](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies), and [file organization](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/file-organization).
 
-The app uses repository-relative data paths, so preserve the `data/` folder structure when pushing and deploying. See Streamlit's guides for [deploying an app](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app) and [managing dependencies](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies).
