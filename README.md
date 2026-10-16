@@ -4,7 +4,7 @@ A beginner-friendly Streamlit application for exploring traditional machine lear
 
 ## Current status
 
-Deployment is in progress. The app is being prepared for Streamlit Community Cloud; add its hosted URL here once deployment completes. You can also run it locally using the commands below.
+The app is deployed on Streamlit Community Cloud: [Open ML Capstone](https://ml-captsone-team-20.streamlit.app/). You can also run it locally using the commands below.
 
 ## Application features
 
@@ -55,4 +55,5 @@ streamlit run notebooks/app.py
 5. Deploy. Community Cloud installs the app dependencies and gives you a hosted `*.streamlit.app` URL. Review the deployment logs if a dependency or data path needs attention.
 
 See Streamlit's guides for [deploying an app](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy), [dependency files](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies), and [file organization](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/file-organization).
+
 
