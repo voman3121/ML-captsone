@@ -9,7 +9,6 @@ import pandas as pd
 import streamlit as st
 from sklearn.compose import ColumnTransformer
 from sklearn.cluster import AgglomerativeClustering, KMeans
-from sklearn.datasets import load_iris
 from sklearn.decomposition import PCA
 from sklearn.ensemble import (AdaBoostClassifier, BaggingClassifier, GradientBoostingClassifier,
                               GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor)
@@ -576,6 +575,31 @@ def regression_page():
                 fig = px.box(engineered, x="total_stops_n", y="Price", color="total_stops_n",
                              title="Fare distribution by number of stops")
                 st.plotly_chart(fig, use_container_width=True, key="aerofare-stops-fare")
+    with st.expander("Predict one flight record", expanded=False):
+        st.caption("Enter one flight below. Defaults are examples and can be edited; the selected regressor uses the AeroFare training data.")
+        with st.form("single-flight-prediction"):
+            f1, f2, f3 = st.columns(3)
+            airline = f1.text_input("Airline", value="IndiGo")
+            source = f2.text_input("Source", value="Banglore")
+            destination = f3.text_input("Destination", value="New Delhi")
+            f4, f5, f6, f7 = st.columns(4)
+            journey_date = f4.text_input("Journey date (DD/MM/YYYY)", value="15/06/2019")
+            departure = f5.text_input("Departure time (HH:MM)", value="10:00")
+            duration = f6.text_input("Duration (e.g. 2h 30m)", value="2h 30m")
+            stops = f7.selectbox("Number of stops", ["non-stop", "1 stop", "2 stops", "3 stops", "4 stops"], index=1)
+            additional = st.text_input("Additional information", value="No info")
+            predict_flight = st.form_submit_button("Predict this flight's fare", type="primary")
+        if predict_flight:
+            record = pd.DataFrame([{"Airline": airline, "Source": source, "Destination": destination,
+                                    "Date_of_Journey": journey_date, "Dep_Time": departure,
+                                    "Duration": duration, "Total_Stops": stops,
+                                    "Additional_Info": additional}])
+            try:
+                estimate = float(predict_rows(fitted[selected], record, frequent_info)[0])
+                st.success(f"Estimated fare using **{selected}**: ₹{estimate:,.2f}")
+                st.caption("This is a model estimate based on the bundled flight-fare training data.")
+            except Exception as exc:
+                st.error(f"Could not predict this flight: {exc}")
     st.divider()
     st.subheader("Predict fares from a flight dataset")
     st.markdown("Upload flight records as CSV or Excel. A labeled file with `fare` or `price` compares all ten algorithms. An unlabeled file with AeroFare-style flight details gets predictions from the selected model.")
@@ -707,9 +731,11 @@ def evaluate_cardio_models(frame: pd.DataFrame) -> dict:
                                                early_stopping=True, random_state=42),
     }
     metrics, probabilities = {}, {}
+    fitted_models = {}
     for name, model in models.items():
         model.fit(train, y_train)
         proba = model.predict_proba(valid)[:, 1]
+        fitted_models[name] = model
         pred = (proba >= 0.5).astype(int)
         probabilities[name] = proba
         metrics[name] = {
@@ -721,7 +747,19 @@ def evaluate_cardio_models(frame: pd.DataFrame) -> dict:
         }
     return {"metrics": pd.DataFrame(metrics).T.rename_axis("Algorithm"),
             "actual": y_valid.to_numpy(), "probabilities": probabilities,
-            "valid_rows": len(y_valid), "total_rows": len(x)}
+            "valid_rows": len(y_valid), "total_rows": len(x),
+            "preprocessor": preprocessor, "models": fitted_models}
+
+
+def prepare_single_cardio_record(record: dict) -> pd.DataFrame:
+    """Build model features for one unlabeled patient without dataset-level label checks."""
+    row = pd.DataFrame([record]).copy()
+    row["age_years"] = pd.to_numeric(row["age_years"], errors="raise")
+    for col in ["height", "weight", "ap_hi", "ap_lo", "cholesterol", "gluc", "gender", "smoke", "alco", "active"]:
+        row[col] = pd.to_numeric(row[col], errors="raise")
+    row["bmi"] = row["weight"] / ((row["height"] / 100) ** 2)
+    row["pulse_pressure"] = row["ap_hi"] - row["ap_lo"]
+    return row[CARDIO_NUMERIC + CARDIO_CATEGORICAL + CARDIO_BINARY]
 
 
 def show_confusion_matrix(actual: np.ndarray, predicted: np.ndarray, model_name: str, key: str) -> None:
@@ -885,6 +923,41 @@ def classification_page():
             col3.metric("F1 (weighted)", f"{f1_score(result['actual'], prediction, average='weighted'):.3f}")
             show_confusion_matrix(result["actual"], prediction, selected, "cardio-confusion-matrix")
             show_roc_visualizations(result["actual"], result["probabilities"], selected)
+            with st.expander("Predict one patient record", expanded=False):
+                st.caption("Enter an example patient record. Defaults can be edited. The classifier was trained on the uploaded labeled dataset.")
+                with st.form("single-cardio-prediction"):
+                    c1, c2, c3, c4 = st.columns(4)
+                    age_years = c1.number_input("Age (years)", min_value=1.0, max_value=120.0, value=50.0, step=1.0)
+                    gender = c2.selectbox("Gender code", [1, 2], index=1, help="Use the dataset's coding (commonly 1 or 2).")
+                    height = c3.number_input("Height (cm)", min_value=120.0, max_value=210.0, value=165.0, step=1.0)
+                    weight = c4.number_input("Weight (kg)", min_value=30.0, max_value=200.0, value=70.0, step=1.0)
+                    c5, c6, c7, c8 = st.columns(4)
+                    ap_hi = c5.number_input("Systolic blood pressure", min_value=70.0, max_value=250.0, value=120.0, step=1.0)
+                    ap_lo = c6.number_input("Diastolic blood pressure", min_value=40.0, max_value=200.0, value=80.0, step=1.0)
+                    cholesterol = c7.selectbox("Cholesterol code", [1, 2, 3], index=0)
+                    gluc = c8.selectbox("Glucose code", [1, 2, 3], index=0)
+                    c9, c10, c11 = st.columns(3)
+                    smoke = c9.selectbox("Smokes", [0, 1], index=0)
+                    alco = c10.selectbox("Uses alcohol", [0, 1], index=0)
+                    active = c11.selectbox("Physically active", [0, 1], index=1)
+                    predict_patient = st.form_submit_button("Predict cardiovascular risk class", type="primary")
+                if predict_patient:
+                    patient = {"age_years": age_years, "gender": gender, "height": height,
+                               "weight": weight, "ap_hi": ap_hi, "ap_lo": ap_lo,
+                               "cholesterol": cholesterol, "gluc": gluc, "smoke": smoke,
+                               "alco": alco, "active": active}
+                    try:
+                        patient_x = prepare_single_cardio_record(patient)
+                        patient_matrix = result["preprocessor"].transform(patient_x)
+                        patient_probability = float(result["models"][selected].predict_proba(patient_matrix)[0, 1])
+                        patient_prediction = int(patient_probability >= threshold)
+                        if patient_prediction:
+                            st.warning(f"Model output: **risk class (1)** · estimated class probability {patient_probability:.1%}.")
+                        else:
+                            st.success(f"Model output: **lower-risk class (0)** · estimated class probability of class 1: {patient_probability:.1%}.")
+                        st.caption(f"Classifier: {selected} · threshold: {threshold:.2f} · output is a dataset-based model classification.")
+                    except Exception as exc:
+                        st.error(f"Could not classify this record: {exc}")
     except Exception as exc:
         st.error(f"Could not evaluate this classification file: {exc}")
 
@@ -898,7 +971,7 @@ def info_card(title: str, body: str):
 FINRISK_FILE = PROJECT_ROOT / "data" / "credit_risk_dataset.csv"
 
 
-def prepare_finrisk(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
+def prepare_finrisk(frame: pd.DataFrame, return_metadata: bool = False):
     required = ["person_age", "person_income", "person_home_ownership", "person_emp_length", "loan_intent",
                 "loan_grade", "loan_amnt", "loan_int_rate", "loan_status", "loan_percent_income",
                 "cb_person_default_on_file", "cb_person_cred_hist_length"]
@@ -925,38 +998,76 @@ def prepare_finrisk(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd
     continuous = ["person_age", "log_income", "person_emp_length", "log_loan_amnt", "loan_int_rate",
                   "loan_percent_income", "cb_person_cred_hist_length", "credit_hist_ratio", "grade_num"]
     dummies = pd.get_dummies(df[["person_home_ownership", "loan_intent"]], dtype=int)
-    scaled = pd.DataFrame(StandardScaler().fit_transform(df[continuous]), columns=continuous, index=df.index)
+    scaler = StandardScaler().fit(df[continuous])
+    scaled = pd.DataFrame(scaler.transform(df[continuous]), columns=continuous, index=df.index)
     features = pd.concat([scaled, df[["default_on_file"]], dummies], axis=1).replace([np.inf, -np.inf], np.nan)
     valid = features.notna().all(axis=1)
     labels = pd.to_numeric(df.loc[valid, "loan_status"], errors="coerce").astype(int)
-    return features.loc[valid].reset_index(drop=True), df.loc[valid].reset_index(drop=True), labels.reset_index(drop=True)
+    features = features.loc[valid].reset_index(drop=True)
+    clean = df.loc[valid].reset_index(drop=True)
+    labels = labels.reset_index(drop=True)
+    if return_metadata:
+        metadata = {"scaler": scaler, "continuous": continuous,
+                    "dummy_columns": list(dummies.columns), "feature_columns": list(features.columns)}
+        return features, clean, labels, metadata
+    return features, clean, labels
+
+
+def transform_finrisk_record(record: dict, metadata: dict) -> pd.DataFrame:
+    """Apply the merged notebook's fitted feature transformations to one borrower."""
+    row = pd.DataFrame([record])
+    row["person_age"] = pd.to_numeric(row["person_age"], errors="raise")
+    row["person_income"] = pd.to_numeric(row["person_income"], errors="raise")
+    row["person_emp_length"] = pd.to_numeric(row["person_emp_length"], errors="raise")
+    row["loan_amnt"] = pd.to_numeric(row["loan_amnt"], errors="raise")
+    row["loan_int_rate"] = pd.to_numeric(row["loan_int_rate"], errors="raise")
+    row["loan_percent_income"] = pd.to_numeric(row["loan_percent_income"], errors="raise")
+    row["cb_person_cred_hist_length"] = pd.to_numeric(row["cb_person_cred_hist_length"], errors="raise")
+    if row["person_age"].iloc[0] <= 0 or row["person_income"].iloc[0] < 0:
+        raise ValueError("Age must be positive and income cannot be negative.")
+    row["log_income"] = np.log1p(row["person_income"].clip(lower=0))
+    row["log_loan_amnt"] = np.log1p(row["loan_amnt"].clip(lower=0))
+    row["credit_hist_ratio"] = row["cb_person_cred_hist_length"] / row["person_age"]
+    row["grade_num"] = row["loan_grade"].map({g: i for i, g in enumerate("ABCDEFG")})
+    row["default_on_file"] = row["cb_person_default_on_file"].map({"Y": 1, "N": 0})
+    if row[["grade_num", "default_on_file"]].isna().any().any():
+        raise ValueError("Choose a loan grade from A–G and a previous-default value of Y or N.")
+    scaled = pd.DataFrame(metadata["scaler"].transform(row[metadata["continuous"]]),
+                          columns=metadata["continuous"])
+    dummies = pd.get_dummies(row[["person_home_ownership", "loan_intent"]], dtype=int)
+    dummies = dummies.reindex(columns=metadata["dummy_columns"], fill_value=0)
+    features = pd.concat([scaled, row[["default_on_file"]].reset_index(drop=True), dummies], axis=1)
+    return features.reindex(columns=metadata["feature_columns"], fill_value=0)
 
 
 def analyze_finrisk(frame: pd.DataFrame) -> dict:
-    features, clean, default_label = prepare_finrisk(frame)
+    features, clean, default_label, metadata = prepare_finrisk(frame, return_metadata=True)
     if len(features) > 10_000:
         idx = np.random.RandomState(42).choice(len(features), 10_000, replace=False)
         features, clean, default_label = features.iloc[idx].reset_index(drop=True), clean.iloc[idx].reset_index(drop=True), default_label.iloc[idx].reset_index(drop=True)
     matrix = features.to_numpy(dtype=float)
     rng = np.random.RandomState(42)
     sample_idx = rng.choice(len(matrix), min(3000, len(matrix)), replace=False)
-    sweep, labels_by_k = [], {}
+    sweep, labels_by_k, models_by_k = [], {}, {}
     for k in range(2, 9):
         model = KMeans(n_clusters=k, init="k-means++", n_init=10, random_state=42).fit(matrix)
         labels = model.labels_
         labels_by_k[k] = labels
+        models_by_k[k] = model
         sweep.append({"k": k, "Inertia": model.inertia_,
                       "Silhouette Score": silhouette_score(matrix[sample_idx], labels[sample_idx]),
                       "Davies-Bouldin Index": davies_bouldin_score(matrix, labels),
                       "Calinski-Harabasz Index": calinski_harabasz_score(matrix, labels)})
     scores = pd.DataFrame(sweep)
-    best_k = int(scores.loc[scores["Silhouette Score"].idxmax(), "k"])
+    eligible_scores = scores[scores["k"] >= 3]
+    best_k = int(eligible_scores.loc[eligible_scores["Silhouette Score"].idxmax(), "k"])
     pca = PCA(n_components=2, random_state=42)
     coords = pca.fit_transform(matrix)
     continuous_profile = clean[["person_age", "person_income", "person_emp_length", "loan_amnt", "loan_int_rate",
                                 "loan_percent_income", "cb_person_cred_hist_length"]].copy()
     return {"features": features, "clean": clean, "default": default_label, "scores": scores,
-            "labels_by_k": labels_by_k, "best_k": best_k, "coords": coords,
+            "labels_by_k": labels_by_k, "models_by_k": models_by_k, "best_k": best_k,
+            "metadata": metadata, "coords": coords,
             "profile_source": continuous_profile, "variance": pca.explained_variance_ratio_}
 
 
@@ -1042,154 +1153,150 @@ def show_kmeans_results(result: dict, key: str) -> None:
         st.scatter_chart(plot_data, x="PC1", y="PC2", color="Cluster")
 
 
-def show_agglomerative_iris(key: str, uploaded_frame: pd.DataFrame | None = None) -> None:
-    if uploaded_frame is None:
-        iris = load_iris(as_frame=True)
-        frame = iris.frame.rename(columns={"sepal length (cm)": "sepal_length", "sepal width (cm)": "sepal_width",
-                                           "petal length (cm)": "petal_length", "petal width (cm)": "petal_width",
-                                           "target": "species_code"})
-        frame["species"] = frame["species_code"].map(dict(enumerate(iris.target_names)))
-    else:
-        frame = uploaded_frame.copy()
-        normalized = {re.sub(r"[^a-z0-9]+", "_", str(col).strip().lower()).strip("_"): col
-                      for col in frame.columns}
-        aliases = {
-            "sepal_length": ["sepal_length", "sepal_length_cm", "sepallengthcm"],
-            "sepal_width": ["sepal_width", "sepal_width_cm", "sepalwidthcm"],
-            "petal_length": ["petal_length", "petal_length_cm", "petallengthcm"],
-            "petal_width": ["petal_width", "petal_width_cm", "petalwidthcm"],
-        }
-        rename = {}
-        for target, names in aliases.items():
-            if target not in frame.columns:
-                for alias in names:
-                    if alias in normalized:
-                        rename[normalized[alias]] = target
-                        break
-        frame = frame.rename(columns=rename)
-    features = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
-    missing = [col for col in features if col not in frame.columns]
-    if missing:
-        raise ValueError("Upload an Iris-style CSV with these measurement columns: " + ", ".join(features)
-                         + f". Missing: {', '.join(missing)}. Columns found: {', '.join(map(str, frame.columns))}")
-    for col in features:
-        frame[col] = pd.to_numeric(frame[col], errors="coerce")
-    frame = frame.dropna(subset=features).drop_duplicates().reset_index(drop=True)
-    if len(frame) < 10:
-        raise ValueError("At least 10 complete rows are needed for Agglomerative clustering.")
-    if len(frame) > 1000:
-        frame = frame.sample(n=1000, random_state=42).reset_index(drop=True)
-        st.info("Agglomerative clustering uses a reproducible 1,000-row sample for large uploads because its memory use grows rapidly with row count.")
-    x = frame[features]
-    scaled = StandardScaler().fit_transform(x)
-    st.subheader("Iris exploratory data analysis")
-    if "species" in frame.columns:
-        st.write(f"**{len(frame)} rows**, **4 measurements**. Species labels are shown for EDA only and excluded from clustering.")
-    else:
-        st.write(f"**{len(frame)} rows**, **4 measurements**. Any extra columns, including labels, are excluded from clustering.")
-    a, b = st.columns(2)
-    with a:
-        if "species" in frame.columns:
-            st.write("**Species counts**")
-            st.bar_chart(frame["species"].value_counts())
-        else:
-            st.write("**Species counts**")
-            st.caption("No species column supplied; clustering uses measurements only.")
-    with b:
-        st.write("**Feature summary**")
-        st.dataframe(x.describe().T.round(2), use_container_width=True)
-    if PLOTLY_AVAILABLE:
-        corr = px.imshow(x.corr(), text_auto=".2f", color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
-                         title="Iris feature correlations")
-        st.plotly_chart(corr, use_container_width=True, key=f"{key}-corr")
-        if "species" in frame.columns:
-            pair = px.scatter(frame, x="petal_length", y="petal_width", color="species",
-                              title="Petal measurements by known species (EDA only)")
-            st.plotly_chart(pair, use_container_width=True, key=f"{key}-species-eda")
-        else:
-            pair = px.scatter(frame, x="petal_length", y="petal_width",
-                              title="Petal measurements in uploaded rows")
-            st.plotly_chart(pair, use_container_width=True, key=f"{key}-petal-eda")
-    methods = ["ward", "complete", "average", "single"]
+@st.cache_data(show_spinner=False)
+def compute_agglomerative_finrisk(matrix: np.ndarray, k: int) -> dict:
+    """Evaluate the notebook's linkage choices on one fixed, reproducible borrower sample."""
+    indices = np.sort(np.random.RandomState(42).choice(len(matrix), min(2500, len(matrix)), replace=False))
+    sample = matrix[indices]
     labels_by_method, rows = {}, []
-    for method in methods:
-        labels = AgglomerativeClustering(n_clusters=3, linkage=method).fit_predict(scaled)
+    for method in ["ward", "complete", "average", "single"]:
+        labels = AgglomerativeClustering(n_clusters=k, linkage=method).fit_predict(sample)
         labels_by_method[method] = labels
         rows.append({"Linkage": method,
-                     "Silhouette Score": silhouette_score(scaled, labels),
-                     "Davies-Bouldin Index": davies_bouldin_score(scaled, labels),
-                     "Calinski-Harabasz Index": calinski_harabasz_score(scaled, labels)})
-    scores = pd.DataFrame(rows).sort_values("Silhouette Score", ascending=False)
+                     "Silhouette Score": silhouette_score(sample, labels, sample_size=min(1500, len(sample)), random_state=42),
+                     "Davies-Bouldin Index": davies_bouldin_score(sample, labels),
+                     "Calinski-Harabasz Index": calinski_harabasz_score(sample, labels)})
+    return {"indices": indices, "sample": sample, "labels": labels_by_method,
+            "scores": pd.DataFrame(rows).sort_values("Silhouette Score", ascending=False).reset_index(drop=True)}
+
+
+def show_agglomerative_finrisk(result: dict, key: str) -> None:
+    matrix = result["features"].to_numpy(dtype=float)
+    clean = result["clean"]
+    k = result["best_k"]
+    analysis = compute_agglomerative_finrisk(matrix, k)
+    sample, indices = analysis["sample"], analysis["indices"]
+    scores, labels_by_method = analysis["scores"], analysis["labels"]
     best = str(scores.iloc[0]["Linkage"])
-    st.subheader("Agglomerative metrics by linkage · 3 clusters")
-    st.caption("Silhouette and Calinski–Harabasz are better when higher; Davies–Bouldin is better when lower.")
+    st.subheader("Agglomerative Hierarchical Clustering · FinRisk")
+    st.caption(f"Merged notebook workflow: same cleaned and scaled borrower features as K-Means; loan_status is excluded from fitting. Comparing linkages at k={k} on the same fixed sample of {len(sample):,} borrowers.")
+    st.subheader("Linkage strategy metrics")
+    st.caption("Silhouette and Calinski–Harabasz: higher is better. Davies–Bouldin: lower is better.")
     st.dataframe(scores.style.format({c: "{:.3f}" for c in scores.columns if c != "Linkage"}), use_container_width=True)
     if PLOTLY_AVAILABLE:
-        for metric in ["Silhouette Score", "Davies-Bouldin Index", "Calinski-Harabasz Index"]:
-            score_chart = px.bar(scores, x="Linkage", y=metric, color="Linkage", title=f"{metric} by linkage")
-            st.plotly_chart(score_chart, use_container_width=True, key=f"{key}-linkage-{metric}")
-    selected = st.selectbox("Linkage to inspect", methods, index=methods.index(best), key=f"{key}-linkage")
-    coords = PCA(n_components=2, random_state=42).fit_transform(scaled)
-    plot_data = pd.DataFrame({"PC1": coords[:, 0], "PC2": coords[:, 1],
-                              "Cluster": labels_by_method[selected].astype(str), "Linkage": selected})
-    st.write(f"Highest silhouette in this run: **{best}**")
-    st.bar_chart(pd.Series(labels_by_method[selected]).value_counts().sort_index().rename("Flowers"))
-    st.subheader("Compare K-Means and Agglomerative on the same dataset")
-    st.caption("Both algorithms below use the same scaled Iris measurements and three clusters. FinRisk scores above are dataset-specific and should not be compared directly with Iris scores.")
-    kmeans_labels = KMeans(n_clusters=3, init="k-means++", n_init=10, random_state=42).fit_predict(scaled)
-    agglomerative_labels = labels_by_method[selected]
+        metric_charts = st.columns(3)
+        for col, metric in zip(metric_charts, ["Silhouette Score", "Davies-Bouldin Index", "Calinski-Harabasz Index"]):
+            with col:
+                chart = px.bar(scores, x="Linkage", y=metric, color="Linkage", title=metric)
+                st.plotly_chart(chart, use_container_width=True, key=f"{key}-link-{metric}")
+    selected = st.selectbox("Linkage to inspect", ["ward", "complete", "average", "single"],
+                            index=["ward", "complete", "average", "single"].index(best), key=f"{key}-linkage")
+    agg_labels = labels_by_method[selected]
+    kmeans_labels = result["models_by_k"][k].predict(sample)
     comparison = pd.DataFrame([
-        {"Algorithm": "K-Means", "Configuration": "k=3",
-         "Silhouette Score": silhouette_score(scaled, kmeans_labels),
-         "Davies-Bouldin Index": davies_bouldin_score(scaled, kmeans_labels),
-         "Calinski-Harabasz Index": calinski_harabasz_score(scaled, kmeans_labels)},
-        {"Algorithm": "Agglomerative", "Configuration": f"linkage={selected}, clusters=3",
-         "Silhouette Score": silhouette_score(scaled, agglomerative_labels),
-         "Davies-Bouldin Index": davies_bouldin_score(scaled, agglomerative_labels),
-         "Calinski-Harabasz Index": calinski_harabasz_score(scaled, agglomerative_labels)},
+        {"Algorithm": "K-Means", "Configuration": f"k={k}",
+         "Silhouette Score": silhouette_score(sample, kmeans_labels, sample_size=min(1500, len(sample)), random_state=42),
+         "Davies-Bouldin Index": davies_bouldin_score(sample, kmeans_labels),
+         "Calinski-Harabasz Index": calinski_harabasz_score(sample, kmeans_labels)},
+        {"Algorithm": "Agglomerative", "Configuration": f"linkage={selected}, k={k}",
+         "Silhouette Score": silhouette_score(sample, agg_labels, sample_size=min(1500, len(sample)), random_state=42),
+         "Davies-Bouldin Index": davies_bouldin_score(sample, agg_labels),
+         "Calinski-Harabasz Index": calinski_harabasz_score(sample, agg_labels)},
     ])
-    st.dataframe(comparison.style.format({c: "{:.3f}" for c in comparison.columns if c.endswith("Index") or c == "Silhouette Score"}),
-                 use_container_width=True)
-    metric_cols = st.columns(3)
-    for col, metric in zip(metric_cols, ["Silhouette Score", "Davies-Bouldin Index", "Calinski-Harabasz Index"]):
+    st.subheader("Direct algorithm comparison · same borrowers and features")
+    st.dataframe(comparison.style.format({c: "{:.3f}" for c in comparison.columns if c.endswith("Index") or c == "Silhouette Score"}), use_container_width=True)
+    charts = st.columns(3)
+    for col, metric in zip(charts, ["Silhouette Score", "Davies-Bouldin Index", "Calinski-Harabasz Index"]):
         with col:
             if PLOTLY_AVAILABLE:
-                compare_chart = px.bar(comparison, x="Algorithm", y=metric, color="Algorithm",
-                                       title=metric, text_auto=".3f")
-                compare_chart.update_layout(showlegend=False)
-                st.plotly_chart(compare_chart, use_container_width=True, key=f"{key}-algorithm-compare-{metric}")
+                fig = px.bar(comparison, x="Algorithm", y=metric, color="Algorithm", title=metric, text_auto=".3f")
+                fig.update_layout(showlegend=False)
+                st.plotly_chart(fig, use_container_width=True, key=f"{key}-compare-{metric}")
             else:
                 st.bar_chart(comparison.set_index("Algorithm")[[metric]])
+    labels_frame = pd.DataFrame({"K-Means": kmeans_labels.astype(str),
+                                 "Agglomerative": agg_labels.astype(str)})
+    st.write("**Cluster sizes on the comparison sample**")
+    st.dataframe(pd.DataFrame({name: labels_frame[name].value_counts().sort_index()
+                               for name in labels_frame}).fillna(0).astype(int), use_container_width=True)
+    coords = PCA(n_components=2, random_state=42).fit_transform(sample)
+    plots = st.columns(2)
+    for col, (name, labels) in zip(plots, [("K-Means", kmeans_labels), (f"Agglomerative · {selected}", agg_labels)]):
+        with col:
+            if PLOTLY_AVAILABLE:
+                plot = pd.DataFrame({"PC1": coords[:, 0], "PC2": coords[:, 1], "Cluster": labels.astype(str)})
+                fig = px.scatter(plot.sample(min(2500, len(plot)), random_state=42), x="PC1", y="PC2", color="Cluster", title=f"{name} · PCA view")
+                st.plotly_chart(fig, use_container_width=True, key=f"{key}-pca-{name}")
+            else:
+                st.scatter_chart(pd.DataFrame({"PC1": coords[:, 0], "PC2": coords[:, 1], "Cluster": labels.astype(str)}), x="PC1", y="PC2", color="Cluster")
+    n_dendro = min(1000, len(sample))
+    dendro_idx = np.sort(np.random.RandomState(42).choice(len(sample), n_dendro, replace=False))
+    tree = linkage(sample[dendro_idx], method="ward")
+    dend = dendrogram(tree, no_plot=True, truncate_mode="lastp", p=40)
     if PLOTLY_AVAILABLE:
-        fig = px.scatter(plot_data, x="PC1", y="PC2", color="Cluster", title=f"Agglomerative clusters · {selected} linkage")
-        st.plotly_chart(fig, use_container_width=True, key=f"{key}-pca")
-        frames = []
-        for method, labels in labels_by_method.items():
-            part = pd.DataFrame({"PC1": coords[:, 0], "PC2": coords[:, 1],
-                                 "Cluster": labels.astype(str), "Linkage": method})
-            frames.append(part)
-        animated = px.scatter(pd.concat(frames), x="PC1", y="PC2", color="Cluster", animation_frame="Linkage",
-                              title="Animated cluster assignments by linkage", range_x=[-4, 4], range_y=[-2, 2])
-        st.caption("Play to compare how the four linkage rules group the same Iris flowers.")
-        st.plotly_chart(animated, use_container_width=True, key=f"{key}-linkage-animation")
-        z = linkage(scaled, method="ward")
-        den = dendrogram(z, no_plot=True)
-        dend = go.Figure(go.Scatter(x=den["icoord"][0], y=den["dcoord"][0], mode="lines", line={"color": "#0F766E"}))
-        for xs, ys in zip(den["icoord"][1:], den["dcoord"][1:]):
-            dend.add_trace(go.Scatter(x=xs, y=ys, mode="lines", line={"color": "#0F766E"}, showlegend=False))
-        dend.update_layout(title="Ward linkage dendrogram", xaxis_title="Flower leaves", yaxis_title="Merge distance", height=440)
-        st.plotly_chart(dend, use_container_width=True, key=f"{key}-dendrogram")
-    else:
-        st.scatter_chart(plot_data, x="PC1", y="PC2", color="Cluster")
+        fig = go.Figure()
+        for xs, ys in zip(dend["icoord"], dend["dcoord"]):
+            fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", line={"color": "#0F766E"}, showlegend=False))
+        fig.update_layout(title="Ward linkage dendrogram · illustrative subset", xaxis_title="Merged borrower groups", yaxis_title="Merge distance", height=440)
+        st.plotly_chart(fig, use_container_width=True, key=f"{key}-dendrogram")
+
+    st.subheader("Try one borrower record")
+    st.caption("Defaults come from this dataset and are editable. K-Means predicts a cluster directly. Agglomerative has no native prediction method, so its result is the nearest cluster profile from the fitted comparison sample.")
+    categorical_defaults = {
+        "person_home_ownership": clean["person_home_ownership"].mode().iloc[0],
+        "loan_intent": clean["loan_intent"].mode().iloc[0],
+        "loan_grade": clean["loan_grade"].mode().iloc[0],
+        "cb_person_default_on_file": clean["cb_person_default_on_file"].mode().iloc[0],
+    }
+    numeric_defaults = clean.median(numeric_only=True)
+    with st.form(f"{key}-single-borrower"):
+        b1, b2, b3, b4 = st.columns(4)
+        person_age = b1.number_input("Age (years)", 18, 100, int(np.clip(round(numeric_defaults["person_age"]), 18, 100)))
+        person_income = b2.number_input("Annual income", min_value=0.0, value=float(max(0, numeric_defaults["person_income"])), step=1000.0)
+        emp_default = float(np.clip(numeric_defaults["person_emp_length"], 0, 80))
+        person_emp_length = b3.number_input("Employment length (years)", min_value=0.0, max_value=80.0, value=emp_default, step=1.0)
+        loan_amnt = b4.number_input("Loan amount", min_value=0.0, value=float(max(0, numeric_defaults["loan_amnt"])), step=500.0)
+        b5, b6, b7, b8 = st.columns(4)
+        ownership_values = sorted(clean["person_home_ownership"].dropna().astype(str).unique())
+        intent_values = sorted(clean["loan_intent"].dropna().astype(str).unique())
+        grade_values = list("ABCDEFG")
+        default_values = sorted(clean["cb_person_default_on_file"].dropna().astype(str).unique())
+        home = b5.selectbox("Home ownership", ownership_values, index=ownership_values.index(categorical_defaults["person_home_ownership"]))
+        intent = b6.selectbox("Loan intent", intent_values, index=intent_values.index(categorical_defaults["loan_intent"]))
+        grade = b7.selectbox("Loan grade", grade_values, index=grade_values.index(categorical_defaults["loan_grade"]))
+        prior_default = b8.selectbox("Prior default on file", default_values, index=default_values.index(categorical_defaults["cb_person_default_on_file"]))
+        b9, b10, b11, b12 = st.columns(4)
+        interest = b9.number_input("Interest rate (%)", min_value=0.0, max_value=100.0, value=float(np.clip(numeric_defaults["loan_int_rate"], 0, 100)), step=0.1)
+        percent_default = float(np.clip(loan_amnt / person_income if person_income else 0, 0, 1))
+        percent_income = b10.number_input("Loan amount / income", min_value=0.0, max_value=5.0, value=percent_default, step=0.01)
+        history = b11.number_input("Credit history length (years)", min_value=0.0, max_value=100.0, value=float(np.clip(numeric_defaults["cb_person_cred_hist_length"], 0, 100)), step=1.0)
+        run_record = st.form_submit_button("Assign this borrower to clusters", type="primary")
+    if run_record:
+        record = {"person_age": person_age, "person_income": person_income,
+                  "person_home_ownership": home, "person_emp_length": person_emp_length,
+                  "loan_intent": intent, "loan_grade": grade, "loan_amnt": loan_amnt,
+                  "loan_int_rate": interest, "loan_percent_income": percent_income,
+                  "cb_person_default_on_file": prior_default,
+                  "cb_person_cred_hist_length": history}
+        try:
+            record_x = transform_finrisk_record(record, result["metadata"]).to_numpy(dtype=float)
+            km_cluster = int(result["models_by_k"][k].predict(record_x)[0])
+            cluster_centers = {int(label): sample[agg_labels == label].mean(axis=0) for label in np.unique(agg_labels)}
+            agg_cluster = min(cluster_centers, key=lambda label: float(np.linalg.norm(record_x[0] - cluster_centers[label])))
+            out1, out2 = st.columns(2)
+            out1.metric("K-Means assignment", f"Cluster {km_cluster}")
+            out2.metric("Agglomerative nearest cluster", f"Cluster {agg_cluster}")
+        except Exception as exc:
+            st.error(f"Could not assign this record: {exc}")
 
 
 def clustering_page():
     st.title("Clustering")
-    st.write("Both clustering notebooks are available here. Choose a workflow to explore its dataset, preprocessing, clustering results, and visualizations.")
-    tabs = st.tabs(["K-Means · FinRisk notebook", "Agglomerative · Iris notebook"])
+    st.write("The merged clustering notebook applies K-Means and Agglomerative clustering to the same cleaned FinRisk borrower data, enabling a fair metric comparison.")
+    tabs = st.tabs(["K-Means · FinRisk", "Agglomerative · FinRisk and comparison"])
     with tabs[0]:
         st.subheader("K-Means · FinRisk borrower segmentation")
-        st.caption("Source notebook: `clustering_kmeans.ipynb` · Uses credit-risk features; loan status is reserved for post-clustering analysis.")
+        st.caption("Source notebook: `clustering_merged.ipynb` · Uses credit-risk features; loan status is reserved for post-clustering analysis.")
         st.markdown("**Goal:** segment borrowers. `loan_status` is held aside and only checked after clustering.")
         uploaded = st.file_uploader("FinRisk dataset CSV (optional if project data/ is available)", type=["csv"], key="finrisk-upload")
         try:
@@ -1220,16 +1327,12 @@ def clustering_page():
         except Exception as exc:
             st.error(f"Could not run FinRisk clustering: {exc}")
     with tabs[1]:
-        st.subheader("Agglomerative Hierarchical Clustering · Iris")
-        st.caption("Source notebook: `agglomerative_hierarchical_clustering.ipynb` · Compares Ward, complete, average, and single linkage.")
-        st.markdown("**Goal:** group Iris flowers using four scaled measurements; the known species label is used for EDA only.")
-        st.markdown("Upload an optional CSV with `sepal_length`, `sepal_width`, `petal_length`, and `petal_width`. Without an upload, the app uses scikit-learn's built-in Iris dataset.")
-        iris_upload = st.file_uploader("Iris-style dataset CSV (optional)", type=["csv"], key="iris-cluster-upload")
-        try:
-            uploaded_iris = pd.read_csv(io.BytesIO(iris_upload.getvalue())) if iris_upload is not None else None
-            show_agglomerative_iris("iris-agglomerative", uploaded_iris)
-        except Exception as exc:
-            st.error(f"Could not run Agglomerative clustering: {exc}")
+        st.caption("Source notebook: `clustering_merged.ipynb` · Compares Ward, complete, average, and single linkage on the same FinRisk feature sample used by K-Means.")
+        result = st.session_state.get("finrisk_result")
+        if result:
+            show_agglomerative_finrisk(result, "finrisk-agglomerative")
+        else:
+            st.info("Load the FinRisk dataset and run K-Means in the first tab. The same prepared borrower data will then be used here for Agglomerative clustering and the direct comparison.")
 
 
 def navigate_to(track: str) -> None:
@@ -1267,7 +1370,7 @@ if page == "Overview":
     with c3:
         with st.container(border=True):
             st.subheader("🧩 Clustering")
-            st.write("Run K-Means borrower segmentation and compare Agglomerative clustering strategies on Iris.")
+            st.write("Run K-Means borrower segmentation, compare Agglomerative linkage strategies, and review both algorithms on the same FinRisk borrowers.")
             st.button("Open Clustering", on_click=navigate_to, args=("Clustering",),
                       key="overview-clustering", use_container_width=True)
 elif page == "Regression":
